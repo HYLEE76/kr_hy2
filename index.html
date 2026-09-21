@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StatPulse | 스마트 센서 통계분석 대시보드</title>
+  
+  <!-- Preload & Upfront Loading of External CDN Libraries -->
+  <!-- 1. SheetJS: Excel & CSV Parser (Local in-browser) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- 2. Apache ECharts: High-performance interactive charts -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <!-- 3. Simple-Statistics: Standard statistical methods -->
+  <script src="https://cdn.jsdelivr.net/npm/simple-statistics@7.8.3/dist/simple-statistics.min.js"></script>
+  <!-- 4. Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"></script>
+
+  <!-- Dashboard Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Initial Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div style="text-align: center;">
+      <h3 style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">통계 대시보드 로딩 중...</h3>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">CDN 라이브러리 및 데이터셋을 초기화하고 있습니다.</p>
+    </div>
+  </div>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand-wrapper">
+      <div class="brand-icon">
+        <i data-lucide="activity"></i>
+      </div>
+      <div>
+        <div class="brand-title">StatPulse Analytics</div>
+        <div class="brand-subtitle">원클릭 센서 통계분석 및 시각화 플랫폼</div>
+      </div>
+    </div>
+
+    <div class="header-status-area">
+      <span class="badge badge-security" title="모든 데이터는 사용자 브라우저 메모리 안에서만 처리됩니다.">
+        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
+        <span>100% 로컬 브라우저 연산 (보안 보장)</span>
+      </span>
+      <span id="datasetBadge" class="badge badge-dataset">
+        <i data-lucide="file-spreadsheet" style="width: 14px; height: 14px;"></i>
+        <span id="currentFileName">sensor_data_dummy.xlsx</span>
+        <span id="currentRowCount" style="opacity: 0.8;">(28행)</span>
+      </span>
+    </div>
+
+    <div class="header-actions">
+      <!-- Hidden file input for Excel upload -->
+      <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" style="display: none;">
+      
+      <button id="btnUploadTrigger" class="btn btn-secondary" title="새 엑셀 또는 CSV 파일 열기">
+        <i data-lucide="upload" style="width: 14px; height: 14px;"></i>
+        <span>파일 열기</span>
+      </button>
+
+      <button id="btnResetData" class="btn btn-secondary" title="기본 더미 데이터셋으로 초기화">
+        <i data-lucide="rotate-ccw" style="width: 14px; height: 14px;"></i>
+        <span>샘플 리셋</span>
+      </button>
+
+      <button id="btnThemeToggle" class="btn btn-outline btn-icon-only" title="다크/라이트 테마 전환">
+        <i id="themeIcon" data-lucide="moon" style="width: 16px; height: 16px;"></i>
+      </button>
+
+      <button id="btnPrintReport" class="btn btn-primary" title="분석 결과 인쇄 또는 PDF 저장">
+        <i data-lucide="printer" style="width: 14px; height: 14px;"></i>
+        <span>리포트 인쇄/PDF</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- App Main Layout Container -->
+  <div class="app-container">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+      <div class="nav-section-title">분석 모듈</div>
+      <ul class="nav-menu">
+        <li class="nav-item active" data-tab="tab-overview">
+          <i data-lucide="layout-dashboard" style="width: 18px; height: 18px;"></i>
+          <span>종합 개요 대시보드</span>
+        </li>
+        <li class="nav-item" data-tab="tab-descriptive">
+          <i data-lucide="bar-chart-2" style="width: 18px; height: 18px;"></i>
+          <span>기술 통계 & 분포</span>
+        </li>
+        <li class="nav-item" data-tab="tab-correlation">
+          <i data-lucide="git-commit" style="width: 18px; height: 18px;"></i>
+          <span>상관분석 & 히트맵</span>
+        </li>
+        <li class="nav-item" data-tab="tab-sensor-error">
+          <i data-lucide="git-compare" style="width: 18px; height: 18px;"></i>
+          <span>센서 오차 & t-검정</span>
+        </li>
+        <li class="nav-item" data-tab="tab-regression">
+          <i data-lucide="trending-up" style="width: 18px; height: 18px;"></i>
+          <span>회귀분석 & 예측</span>
+        </li>
+        <li class="nav-item" data-tab="tab-outliers">
+          <i data-lucide="alert-triangle" style="width: 18px; height: 18px;"></i>
+          <span>이상치 & SPC 관리도</span>
+        </li>
+        <li class="nav-item" data-tab="tab-rawdata">
+          <i data-lucide="table" style="width: 18px; height: 18px;"></i>
+          <span>원본 데이터 브라우저</span>
+        </li>
+      </ul>
+
+      <!-- Sheet selector if multiple sheets exist -->
+      <div id="sheetSelectorContainer" style="padding: 0 1rem; margin-top: 0.5rem; display: none;">
+        <label class="form-label" style="display: block; margin-bottom: 0.25rem;">시트 선택</label>
+        <select id="sheetSelector" class="form-select" style="width: 100%;"></select>
+      </div>
+
+      <!-- Drag & Drop Upload Zone -->
+      <div id="sidebarDropzone" class="sidebar-upload-card" title="클릭하거나 파일을 여기로 드래그하세요">
+        <div class="upload-icon">
+          <i data-lucide="file-up" style="width: 28px; height: 28px; margin: 0 auto;"></i>
+        </div>
+        <div class="upload-text">엑셀/CSV 파일 추가</div>
+        <div class="upload-subtext">여기로 드래그 앤 드롭<br/>(.xlsx, .csv)</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Workspace -->
+    <main class="app-main">
+
+      <!-- ================================================================= -->
+      <!-- TAB 1: 종합 개요 대시보드 (Executive Summary) -->
+      <!-- ================================================================= -->
+      <section id="tab-overview" class="tab-pane active">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">📊 종합 통계 대시보드</h2>
+            <p class="section-desc">현재 데이터셋의 핵심 지표, 시계열 추세 및 센서 안정성을 한눈에 모니터링합니다.</p>
+          </div>
+          <div class="section-controls">
+            <button id="btnQuickReportGen" class="btn btn-outline">
+              <i data-lucide="sparkles" style="width: 14px; height: 14px; color: var(--primary);"></i>
+              <span>원클릭 종합 진단</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Action / Insight Banner -->
+        <div id="overviewInsightBanner" class="action-banner">
+          <div class="action-banner-text">
+            <h4 id="overviewInsightTitle">🔍 센서 데이터셋 진단 완료</h4>
+            <p id="overviewInsightDesc">총 28건의 연속 시계열 데이터가 탑재되어 있으며, 온도/압력/진동 측정값에 대한 기초 통계 및 오차 분석 준비가 완료되었습니다.</p>
+          </div>
+          <button id="btnJumpToErrorTab" class="btn btn-primary">
+            <span>센서 오차 분석 바로가기</span>
+            <i data-lucide="arrow-right" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+
+        <!-- KPI Grid -->
+        <div class="grid-cards-4">
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">총 측정 표본 (Rows)</div>
+              <div id="kpiRowCount" class="kpi-value">28</div>
+              <div id="kpiTimeSpan" class="kpi-sub">측정 시계열: 00:00 ~ 00:27</div>
+            </div>
+            <div class="kpi-icon-box">
+              <i data-lucide="database" style="width: 22px; height: 22px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">수치형 변수 컬럼</div>
+              <div id="kpiNumericCols" class="kpi-value">6개</div>
+              <div class="kpi-sub">온도(2), 압력, 진동, 경과시간</div>
+            </div>
+            <div class="kpi-icon-box success">
+              <i data-lucide="sliders" style="width: 22px; height: 22px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">온도센서 RMSE (정밀도)</div>
+              <div id="kpiRmseVal" class="kpi-value">--</div>
+              <div id="kpiRmseSub" class="kpi-sub">원시값 vs 참값 평균제곱근오차</div>
+            </div>
+            <div class="kpi-icon-box warning">
+              <i data-lucide="thermometer" style="width: 22px; height: 22px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">이상치 탐지 현황</div>
+              <div id="kpiOutlierCount" class="kpi-value">0건</div>
+              <div class="kpi-sub">3-Sigma 및 IQR 판정 기준</div>
+            </div>
+            <div class="kpi-icon-box danger">
+              <i data-lucide="shield-alert" style="width: 22px; height: 22px;"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Time Series Chart -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="line-chart" style="width: 18px; height: 18px; color: var(--primary);"></i>
+              <span>센서 전체 시계열 복합 추세선</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              하단 슬라이더로 시간 구간 확대/축소 가능
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="chartOverviewTimeSeries" class="chart-container chart-container-lg"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 2: 기술 통계 및 분포 분석 (Descriptive Statistics) -->
+      <!-- ================================================================= -->
+      <section id="tab-descriptive" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">📈 기술 통계 및 분포 분석</h2>
+            <p class="section-desc">모든 수치형 변수의 14가지 기술통계량을 산출하고, 히스토그램과 상자수염도로 분포를 검정합니다.</p>
+          </div>
+          <div class="section-controls">
+            <label class="form-label">분석 대상 변수:</label>
+            <select id="selectDescVariable" class="form-select"></select>
+            <button id="btnExportStatsCsv" class="btn btn-secondary">
+              <i data-lucide="download" style="width: 14px; height: 14px;"></i>
+              <span>통계표 CSV 내보내기</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Normality Test Banner -->
+        <div id="normalityBanner" class="insight-box info">
+          <div class="insight-icon">
+            <i data-lucide="help-circle" style="width: 20px; height: 20px; color: var(--primary);"></i>
+          </div>
+          <div id="normalityText">
+            <strong>정규성 검정 (Jarque-Bera Test)</strong>: 변수를 선택하면 왜도와 첨도를 바탕으로 정규분포 적합성 결과가 여기에 표시됩니다.
+          </div>
+        </div>
+
+        <!-- Charts: Distribution Histogram & Boxplot -->
+        <div class="grid-cards-2">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="bar-chart" style="width: 16px; height: 16px;"></i>
+                <span>빈도 히스토그램 & 정규분포 곡선</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartDistribution" class="chart-container"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="box" style="width: 16px; height: 16px;"></i>
+                <span>수치형 변수 Box & Whisker Plot</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartBoxPlot" class="chart-container"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full Descriptive Statistics Table -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="table" style="width: 16px; height: 16px;"></i>
+              <span>전체 변수 종합 기술통계표</span>
+            </div>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div class="table-responsive">
+              <table id="tableDescriptive" class="data-table">
+                <thead>
+                  <tr>
+                    <th>변수명</th>
+                    <th class="num">표본수(N)</th>
+                    <th class="num">평균(Mean)</th>
+                    <th class="num">중앙값(Median)</th>
+                    <th class="num">표준편차(SD)</th>
+                    <th class="num">분산(Var)</th>
+                    <th class="num">표준오차(SE)</th>
+                    <th class="num">최솟값(Min)</th>
+                    <th class="num">Q1(25%)</th>
+                    <th class="num">Q3(75%)</th>
+                    <th class="num">최댓값(Max)</th>
+                    <th class="num">IQR</th>
+                    <th class="num">왜도(Skew)</th>
+                    <th class="num">첨도(Kurt)</th>
+                    <th>정규성(p≥0.05)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 3: 상관분석 및 다변량 관계 (Correlation Analysis) -->
+      <!-- ================================================================= -->
+      <section id="tab-correlation" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">🔗 상관분석 및 변수 관계</h2>
+            <p class="section-desc">변수 간 피어슨(Pearson) 및 스피어만(Spearman) 상관계수와 연관성을 실시간 분석합니다.</p>
+          </div>
+          <div class="section-controls">
+            <span class="form-label">산점도 변수 X:</span>
+            <select id="selectCorrVarX" class="form-select"></select>
+            <span class="form-label">변수 Y:</span>
+            <select id="selectCorrVarY" class="form-select"></select>
+          </div>
+        </div>
+
+        <!-- Correlation Metric Insight Box -->
+        <div id="corrInsightBox" class="insight-box info">
+          <div class="insight-icon">
+            <i data-lucide="info" style="width: 20px; height: 20px; color: var(--primary);"></i>
+          </div>
+          <div id="corrInsightText">
+            두 변수를 선택하면 피어슨 상관계수(r), 결정계수(R²), 공분산 및 통계적 유의성(p-value)이 계산됩니다.
+          </div>
+        </div>
+
+        <div class="grid-cards-2">
+          <!-- Correlation Heatmap -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="grid" style="width: 16px; height: 16px;"></i>
+                <span>상관관계 히트맵 (Pearson Matrix)</span>
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">셀 클릭 시 우측 산점도 즉시 연동</div>
+            </div>
+            <div class="card-body">
+              <div id="chartCorrHeatmap" class="chart-container"></div>
+            </div>
+          </div>
+
+          <!-- Scatter Plot with Trendline -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="scatter-chart" style="width: 16px; height: 16px;"></i>
+                <span>선택 변수 산점도 & 선형 추세선</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartCorrScatter" class="chart-container"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 4: 센서 오차 및 대응표본 검정 (Sensor Precision & Error) -->
+      <!-- ================================================================= -->
+      <section id="tab-sensor-error" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">🧪 센서 오차 분석 및 대응표본 t-검정</h2>
+            <p class="section-desc">센서 원시 측정값과 참값(기준값) 간의 오차(MAE, RMSE, MAPE)를 정량화하고 가설검정을 수행합니다.</p>
+          </div>
+          <div class="section-controls">
+            <label class="form-label">센서 원시값(Ŷ):</label>
+            <select id="selectErrorVarPred" class="form-select"></select>
+            <label class="form-label">참값/비교용(Y):</label>
+            <select id="selectErrorVarTrue" class="form-select"></select>
+            <button id="btnRunErrorAnalysis" class="btn btn-primary">
+              <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+              <span>오차 정밀도 재계산</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Paired t-test Hypothesis Testing Result Banner -->
+        <div id="tTestResultBanner" class="insight-box success">
+          <div class="insight-icon">
+            <i data-lucide="check-circle-2" style="width: 22px; height: 22px;"></i>
+          </div>
+          <div id="tTestResultText">
+            <strong>대응표본 t-검정 결과</strong>: 분석 로딩 중...
+          </div>
+        </div>
+
+        <!-- Error KPI Grid -->
+        <div class="grid-cards-4">
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">RMSE (제곱평균제곱근오차)</div>
+              <div id="statRmse" class="kpi-value">--</div>
+              <div class="kpi-sub">큰 오차에 높은 페널티 부여</div>
+            </div>
+            <div class="kpi-icon-box warning">
+              <i data-lucide="target" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">MAE (평균절대오차)</div>
+              <div id="statMae" class="kpi-value">--</div>
+              <div class="kpi-sub">원시값과 참값의 평균 오차 크기</div>
+            </div>
+            <div class="kpi-icon-box primary">
+              <i data-lucide="activity" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">Bias (평균 편향/오차)</div>
+              <div id="statBias" class="kpi-value">--</div>
+              <div class="kpi-sub">+ 과대계측 / - 과소계측</div>
+            </div>
+            <div class="kpi-icon-box">
+              <i data-lucide="scale" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">최대 절대 오차 (Max Error)</div>
+              <div id="statMaxError" class="kpi-value">--</div>
+              <div class="kpi-sub">관측된 단일 최대 편차</div>
+            </div>
+            <div class="kpi-icon-box danger">
+              <i data-lucide="alert-octagon" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts: Dual Time Series Comparison & Bland-Altman -->
+        <div class="grid-cards-2">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="git-compare" style="width: 16px; height: 16px;"></i>
+                <span>원시값 vs 참값 추세 및 오차(잔차)</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartErrorComparison" class="chart-container"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="crosshair" style="width: 16px; height: 16px;"></i>
+                <span>Bland-Altman 일치도 플롯 (95% LoA)</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartBlandAltman" class="chart-container"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 5: 회귀분석 및 예측 모델 (Regression Modeling) -->
+      <!-- ================================================================= -->
+      <section id="tab-regression" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">📉 회귀분석 및 추세 모델링</h2>
+            <p class="section-desc">독립변수(X)와 종속변수(Y)를 설정하고 선형, 2차 다항, 지수 회귀 모델을 즉시 피팅합니다.</p>
+          </div>
+          <div class="section-controls">
+            <label class="form-label">독립변수 (X):</label>
+            <select id="selectRegVarX" class="form-select"></select>
+            <label class="form-label">종속변수 (Y):</label>
+            <select id="selectRegVarY" class="form-select"></select>
+            
+            <div class="pill-group" id="regModelSelector">
+              <span class="pill-item active" data-model="linear">선형 (1차)</span>
+              <span class="pill-item" data-model="poly2">다항 (2차)</span>
+              <span class="pill-item" data-model="exponential">지수 곡선</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Regression Performance Cards -->
+        <div class="grid-cards-4">
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">도출된 회귀방정식</div>
+              <div id="regEquation" class="kpi-value" style="font-size: 1.05rem; word-break: break-all;">y = ax + b</div>
+              <div class="kpi-sub">수학적 회귀 모델 피팅식</div>
+            </div>
+            <div class="kpi-icon-box">
+              <i data-lucide="code" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">결정계수 (R²)</div>
+              <div id="regR2" class="kpi-value">--</div>
+              <div id="regAdjR2" class="kpi-sub">수정 R²: --</div>
+            </div>
+            <div class="kpi-icon-box success">
+              <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">회귀모델 유의확률 (p-value)</div>
+              <div id="regPValue" class="kpi-value">--</div>
+              <div id="regSignificance" class="kpi-sub">유의수준 5% 기준 판정</div>
+            </div>
+            <div class="kpi-icon-box warning">
+              <i data-lucide="percent" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div>
+              <div class="kpi-label">잔차 표준오차 (SE)</div>
+              <div id="regStdError" class="kpi-value">--</div>
+              <div class="kpi-sub">추정의 표준오차</div>
+            </div>
+            <div class="kpi-icon-box">
+              <i data-lucide="activity" style="width: 20px; height: 20px;"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Regression Chart & Interactive Prediction Simulator -->
+        <div class="grid-cards-2">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="trending-up" style="width: 16px; height: 16px;"></i>
+                <span>회귀선 피팅 플롯</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="chartRegressionFit" class="chart-container"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">
+                <i data-lucide="calculator" style="width: 16px; height: 16px;"></i>
+                <span>실시간 예측값 시뮬레이터</span>
+              </div>
+            </div>
+            <div class="card-body" style="display: flex; flex-direction: column; justify-content: center; gap: 1.25rem;">
+              <p style="font-size: 0.85rem; color: var(--text-muted);">
+                도출된 회귀방정식을 기반으로, 임의의 X 입력값에 대응하는 예측 Y(종속변수) 값을 즉시 계산합니다.
+              </p>
+              <div>
+                <label id="lblSimInputX" class="form-label" style="display: block; margin-bottom: 0.35rem;">독립변수 X 입력값:</label>
+                <div style="display: flex; gap: 0.5rem;">
+                  <input type="number" id="inputSimX" class="form-input" style="flex: 1;" placeholder="예: 15.0" step="any">
+                  <button id="btnSimulatePredict" class="btn btn-primary">
+                    <i data-lucide="play" style="width: 14px; height: 14px;"></i>
+                    <span>예측 실행</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style="background-color: var(--bg-subtle); border-radius: var(--radius-md); padding: 1.25rem; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">모델 추정 결과 (Ŷ)</div>
+                <div id="simResultValue" style="font-size: 2rem; font-weight: 700; color: var(--primary); margin: 0.35rem 0;">--</div>
+                <div id="simResultFormula" style="font-size: 0.75rem; color: var(--text-faint);">공식 적용 결과</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 6: 이상치 & SPC 관리도 (SPC & Outlier Detection) -->
+      <!-- ================================================================= -->
+      <section id="tab-outliers" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">🚨 공정 통계(SPC) 및 이상치 탐지</h2>
+            <p class="section-desc">Shewhart 3-Sigma 관리한계선(UCL/CL/LCL), 사분위(IQR), Z-Score 알고리즘으로 이상 징후를 감지합니다.</p>
+          </div>
+          <div class="section-controls">
+            <label class="form-label">모니터링 변수:</label>
+            <select id="selectSpcVariable" class="form-select"></select>
+            
+            <label class="form-label">Z-Score 임계치:</label>
+            <select id="selectZThreshold" class="form-select">
+              <option value="2.0">±2.0 (민감)</option>
+              <option value="2.5" selected>±2.5 (표준 권장)</option>
+              <option value="3.0">±3.0 (엄격 3σ)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Outlier Status Banner -->
+        <div id="spcSummaryBanner" class="insight-box info">
+          <div class="insight-icon">
+            <i data-lucide="shield" style="width: 20px; height: 20px; color: var(--primary);"></i>
+          </div>
+          <div id="spcSummaryText">
+            관리도 분석 진행 중...
+          </div>
+        </div>
+
+        <!-- SPC Control Chart -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="sliders" style="width: 16px; height: 16px;"></i>
+              <span>Shewhart 관리도 (Center Line & 3-Sigma Control Limits)</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              빨간색 점은 관리한계 또는 이상치 기준을 벗어난 데이터입니다.
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="chartSpcControl" class="chart-container chart-container-lg"></div>
+          </div>
+        </div>
+
+        <!-- Detected Outliers Detail Table -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="alert-circle" style="width: 16px; height: 16px; color: var(--danger);"></i>
+              <span>감지된 이상치 목록 (Outlier Registry)</span>
+            </div>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div class="table-responsive">
+              <table id="tableOutliers" class="data-table">
+                <thead>
+                  <tr>
+                    <th>행 번호</th>
+                    <th>측정 시각</th>
+                    <th class="num">측정값</th>
+                    <th class="num">Z-Score</th>
+                    <th>탐지 기준 및 판정 사유</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 7: 원본 데이터 브라우저 (Raw Data Browser) -->
+      <!-- ================================================================= -->
+      <section id="tab-rawdata" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">📋 원본 데이터 브라우저</h2>
+            <p class="section-desc">현재 로드된 엑셀/CSV 데이터의 전체 테이블을 열람, 검색, 필터링 및 내보내기할 수 있습니다.</p>
+          </div>
+          <div class="section-controls">
+            <input type="text" id="inputTableSearch" class="form-input" placeholder="데이터 검색 (시각, 이벤트 등)..." style="width: 220px;">
+            <button id="btnExportRawCsv" class="btn btn-secondary">
+              <i data-lucide="download" style="width: 14px; height: 14px;"></i>
+              <span>CSV 다운로드</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <i data-lucide="file-text" style="width: 16px; height: 16px;"></i>
+              <span>전체 데이터 테이블</span>
+            </div>
+            <div id="tableFilterStatus" style="font-size: 0.75rem; color: var(--text-muted);">
+              전체 28행 표시 중
+            </div>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+              <table id="tableRawData" class="data-table">
+                <thead id="tableRawHead"></thead>
+                <tbody id="tableRawBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Floating Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- JavaScript Modules in Strict Order -->
+  <!-- 1. Sample Data (offline dummy fallback) -->
+  <script src="js/sample-data.js"></script>
+  <!-- 2. Pure JS Statistical Analysis Engine -->
+  <script src="js/stats-engine.js"></script>
+  <!-- 3. ECharts Visualizations Helper -->
+  <script src="js/charts.js"></script>
+  <!-- 4. Main App Controller & UI Bindings -->
+  <script src="js/app.js"></script>
+
+</body>
+</html>
